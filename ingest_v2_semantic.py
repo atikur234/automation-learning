@@ -4,35 +4,36 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_community.document_loaders import PyPDFLoader
 
-# 1. SETUP THE BRAIN (Now using the updated library)
-print("🧠 Initializing Modern Semantic Brain...")
+# 1. SETUP THE HIGH-PRECISION BRAIN
+print("🧠 Initializing High-Precision Semantic Brain...")
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-# Percentile split: It cuts where topic similarity drops significantly
-text_splitter = SemanticChunker(embeddings, breakpoint_threshold_type="percentile")
+
+# We use 'standard_deviation' with a 1.25 threshold.
+# This forces more 'cuts', creating smaller, more focused chunks.
+text_splitter = SemanticChunker(
+    embeddings, 
+    breakpoint_threshold_type="standard_deviation",
+    breakpoint_threshold_amount=1.25 
+)
 
 # 2. PDF PATH CHECKER
-# Ensure your file is in 'D:\NexusResearch\data ingestion\data\un_ai_report.pdf'
 file_path = "data/un_ai_report.pdf"
 
 if not os.path.exists(file_path):
     print(f"❌ ERROR: PDF not found at {os.path.abspath(file_path)}")
-    print("👉 ACTION: Make sure the file is named 'un_ai_report.pdf' inside the 'data' folder.")
 else:
     # 3. LOAD THE PDF
     print(f"📄 Loading PDF: {file_path}...")
     loader = PyPDFLoader(file_path)
-    # PyPDFLoader splits by page initially
     pages = loader.load()
 
     # 4. SEMANTIC SHREDDING
-    print("✂️ Shredding PDF based on Topic Shifts (Processing meaning)...")
-    # This takes the text from all pages and regroup them by 'meaning'
+    print("✂️ Shredding PDF into High-Precision Atomic Chunks...")
     chunks = text_splitter.split_documents(pages)
 
     # 5. REBUILD THE VAULT
     client = chromadb.PersistentClient(path="./chroma_db")
     
-    # Wipe old data so we don't have 'duplicate' or 'messy' indices
     try: 
         client.delete_collection("nexus_compliance_vault")
         print("🗑️ Old vault wiped.")
@@ -41,7 +42,7 @@ else:
 
     collection = client.create_collection(name="nexus_compliance_vault")
 
-    print(f"📦 Indexing {len(chunks)} high-quality semantic chunks...")
+    print(f"📦 Indexing {len(chunks)} Atomic Semantic Chunks...")
     for i, chunk in enumerate(chunks):
         collection.add(
             ids=[f"sem_{i}"],
@@ -49,8 +50,8 @@ else:
             metadatas=[{
                 "source": "un_ai_report.pdf", 
                 "type": "semantic",
-                "page": chunk.metadata.get("page", 0) + 1 # Tracks actual PDF page!
+                "page": chunk.metadata.get("page", 0) + 1 
             }]
         )
 
-    print(f"✅ Success! Created {len(chunks)} semantic chunks.")
+    print(f"✅ Success! Created {len(chunks)} high-precision chunks.")

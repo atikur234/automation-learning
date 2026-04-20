@@ -39,8 +39,8 @@ def nexus_research_pro(query):
     print(f"🔍 Searching vault for: '{query}'...")
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=2) as executor:
-        future_v = executor.submit(get_vector_search, query, collection, 10)
-        future_k = executor.submit(get_keyword_search, query, all_data['documents'], 10)
+        future_v = executor.submit(get_vector_search, query, collection, 5)
+        future_k = executor.submit(get_keyword_search, query, all_data['documents'], 5)
         vector_docs = future_v.result()['documents'][0]
         keyword_docs = future_k.result()
     stats['retrieval_ms'] = int((time.time() - t0) * 1000)
@@ -65,9 +65,14 @@ def nexus_research_pro(query):
 
     # --- 5. GENERATION ---
     t2 = time.time()
-    best_context = "\n\n".join([doc for doc, score in scored_docs[:2]])
-    prompt = f"SYSTEM: Use ONLY context.\nCONTEXT: {best_context}\n\nUSER: {query}"
-    
+    best_context = scored_docs[0][0]  # Take ONLY the single best atomic chunk
+# Update your prompt variable:
+    prompt = (
+    f"### Instruction: Answer the question using ONLY the context. Be brief.\n"
+    f"### Context: {best_context}\n"
+    f"### Question: {query}\n"
+    f"### Answer:"
+      )
     response = client_local.chat.completions.create(
         model="llama3", 
         messages=[{"role": "user", "content": prompt}],
