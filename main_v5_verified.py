@@ -121,3 +121,13 @@ if __name__ == "__main__":
         print("━"*60)
         print(f"📊 {stats['total_ms']}ms | In:{stats['tokens_in']} Out:{stats['tokens_out']} | Rerank:{stats['rerank_ms']}ms")
         print("━"*60)
+
+        # --- NEW: PERSISTENT AUDIT LOG ---
+        with open("nexus_audit_log.md", "a", encoding="utf-8") as f:
+            f.write(f"## Query: {user_query}\n")
+            f.write(f"**Answer:** {answer}\n")
+            f.write(f"**Source:** {evidence['file']} (Page {evidence['page']})\n")
+            f.write(f"**Verification Snippet:** `{evidence['snippet']}`\n")
+            f.write(f"**Performance:** {stats['total_ms']}ms\n\n")
+            f.write("---\n")
+        print("💾 Research saved to nexus_audit_log.md")

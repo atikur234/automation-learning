@@ -12,7 +12,7 @@ text_splitter = RecursiveCharacterTextSplitter(
     separators=["\n\n", "\n", ".", " ", ""]
 )
 
-def process_document(file_path, region="global"):
+def process_document(file_path, region="EU"):
     # A. Extract Text
     text = ""
     if file_path.endswith(".pdf"):

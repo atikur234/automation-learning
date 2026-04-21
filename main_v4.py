@@ -94,7 +94,7 @@ def ask_nexus_v4(query):
 
 if __name__ == "__main__":
     print("\n🕵️ STARTING NEXUS OBSERVER (v4)...")
-    q = "Who are the co-chairs of the High-level Advisory Body?"
+    q = " What is Rahaf Harfoush's role?"
     answer, stats = ask_nexus_v4(q)
     
     print("-" * 30)
