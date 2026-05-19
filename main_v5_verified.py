@@ -29,7 +29,7 @@ def get_keyword_search(query, all_docs, n):
 def agentic_audit(query, current_answer):
     audit_prompt = (
        f"### IDENTITY: Senior Inter-Nexus Auditor.\n"
-       f"### TASK: If the query asks to COMPARE sources, check for specific data from BOTH. "
+       f"### TASK: If a query involves a ban or prohibition, the Judge must find the specific Article (EU) or Recommendation Number (UN). If no specific number is found, label the data as 'High Uncertainty / General Philosophy only'. "
        f"If Article numbers or fine percentages are missing, you MUST pivot.\n"
        f"### QUERY: {query}\n"
        f"### ANSWER: {current_answer}\n\n"
