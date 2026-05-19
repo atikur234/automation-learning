@@ -29,13 +29,23 @@ def get_keyword_search(query, all_docs, n):
 # --- 3. DAY 11: AGENTIC AUDITOR (PRESERVED) ---
 def agentic_audit(query, current_answer):
     """The 'Brain' that decides if we need to search deeper for context missing in the initial pass."""
+    # audit_prompt = (
+    #  f"### IDENTITY: You are a Senior Research Auditor.\n"
+    #  f"### TASK: Analyze the answer for generic vs specific info. If funding amounts, specific donors, "
+    #  f"or governance structures are mentioned in the query but missing in the answer, you MUST pivot.\n"
+    #  f"### QUERY: {query}\n"
+    #  f"### ANSWER: {current_answer}\n\n"
+    #  f"INSTRUCTION: If details are vague, output 'NEED: [specific search term]'. Otherwise 'COMPLETE'."
+    #  )
+    # UPDATE: Day 13 Cross-Doc Auditor
     audit_prompt = (
-     f"### IDENTITY: You are a Senior Research Auditor.\n"
-     f"### TASK: Analyze the answer for generic vs specific info. If funding amounts, specific donors, "
-     f"or governance structures are mentioned in the query but missing in the answer, you MUST pivot.\n"
-     f"### QUERY: {query}\n"
-     f"### ANSWER: {current_answer}\n\n"
-     f"INSTRUCTION: If details are vague, output 'NEED: [specific search term]'. Otherwise 'COMPLETE'."
+       f"### IDENTITY: Senior Inter-Nexus Auditor.\n"
+       f"### TASK: If the query asks to COMPARE two sources (e.g., UN and EU), "
+       f"check if the answer has specific data from BOTH. If one side is vague or missing "
+       f"Article/Section numbers, you MUST pivot.\n"
+       f"### QUERY: {query}\n"
+       f"### ANSWER: {current_answer}\n\n"
+       f"INSTRUCTION: Output 'NEED: [source name] [topic]' or 'COMPLETE'."
      )
     
     response = client_local.chat.completions.create(
@@ -128,8 +138,8 @@ def get_recursive_summary(collection, page_number):
 
 # --- 4. THE EXECUTIVE RESEARCH ENGINE ---
 def nexus_research_final(query):
-    # Added recursive_summaries to stats
-    stats = {'retrieval_ms': 0, 'rerank_ms': 0, 'gen_ms': 0, 'total_ms': 0, 'tokens_in': 0, 'tokens_out': 0, 'rerank_score': 0, 'agentic_pivots': 0, 'recursive_summaries': 0}
+    # Added 'files_consulted' to stats for multi-doc tracking
+    stats = {'retrieval_ms': 0, 'rerank_ms': 0, 'gen_ms': 0, 'total_ms': 0, 'tokens_in': 0, 'tokens_out': 0, 'rerank_score': 0, 'agentic_pivots': 0, 'recursive_summaries': 0, 'files_consulted': []}
     start_total = time.time()
     
     client_db = chromadb.PersistentClient(path="./chroma_db")
@@ -139,8 +149,9 @@ def nexus_research_final(query):
     # A. INITIAL RETRIEVAL & RERANK
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=2) as executor:
-        f_v = executor.submit(get_vector_search, query, collection, 5)
-        f_k = executor.submit(get_keyword_search, query, all_data['documents'], 5)
+        # Day 13: Increased N to 8 to catch both documents in the first net
+        f_v = executor.submit(get_vector_search, query, collection, 8) 
+        f_k = executor.submit(get_keyword_search, query, all_data['documents'], 8)
         v_docs = f_v.result()['documents'][0]
         k_docs = f_k.result()
     
@@ -151,39 +162,48 @@ def nexus_research_final(query):
     scores = reranker.predict(pairs)
     scored_results = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
     
-    if not scored_results or scored_results[0][1] < -4.0:
-        return "❌ Data missing in vault.", None, stats
+    # PATCH 1: Lowered threshold to -5.0 to catch technical regulatory text
+    if not scored_results or scored_results[0][1] < -5.0:
+        return "❌ Data missing in vault. Check if EU AI Act is properly ingested.", None, stats
 
     best_score = scored_results[0][1]
     stats['rerank_score'] = best_score
-    
-    comparison_keywords = ["compare", "difference", "versus", "both", "opportunity scan"]
-    if any(k in query.lower() for k in comparison_keywords) and len(scored_results) > 1:
-        best_doc = f"--- CONTEXT A ---\n{scored_results[0][0]}\n\n--- CONTEXT B ---\n{scored_results[1][0]}"
-    else:
-        best_doc = scored_results[0][0]
 
-    # --- DAY 12: STRUCTURAL DETECTION & RECURSION ---
+    # --- DAY 13: SOURCE ROUTING ---
+    context_blocks = []
+    seen_sources = set()
+    
+    # Process top 6 results to ensure multi-source representation
+    for doc, score in scored_results[:6]:
+        meta = doc_to_meta.get(doc, {})
+        source_name = meta.get("source", "Unknown")
+        seen_sources.add(source_name)
+        context_blocks.append(f"--- SOURCE: {source_name} (Page {meta.get('page', 'N/A')}) ---\n{doc}")
+
+    stats['files_consulted'] = list(seen_sources)
+    best_doc = "\n\n".join(context_blocks)
+
+    # --- DAY 12: STRUCTURAL DETECTION & RECURSION (PRESERVED) ---
     primary_meta = doc_to_meta.get(scored_results[0][0], {})
-    broad_terms = ["philosophy", "vision", "connect", "underlying", "overall", "narrative"]
+    broad_terms = ["philosophy", "vision", "connect", "underlying", "overall", "narrative", "compare"]
     is_broad = any(term in query.lower() for term in broad_terms)
     
     if is_broad:
-        print("🌲 FOREST VIEW: Broad query detected. Performing Recursive Summarization...")
+        print(f"🌲 FOREST VIEW: Analyzing {primary_meta.get('source')} narrative...")
         stats['recursive_summaries'] += 1
         page_ref = primary_meta.get("page", 1)
-        chapter_philosophy = get_recursive_summary(collection, page_ref)
-        # Inject the Master Lens into the context
-        best_doc = f"CHAPTER PHILOSOPHY:\n{chapter_philosophy}\n\nSPECIFIC DETAILS:\n{best_doc}"
+        # Day 13: Passing source name to ensure summary stays in the correct document
+        chapter_philosophy = get_recursive_summary(collection, page_ref, primary_meta.get("source"))
+        best_doc = f"CHAPTER PHILOSOPHY ({primary_meta.get('source')}):\n{chapter_philosophy}\n\n{best_doc}"
 
     # --- B. GENERATION WRAPPER ---
     def generate_report(context_text, user_query):
         prompt = (
-            f"### IDENTITY: You are Nexus Research Intelligence. Provide a precise executive report.\n"
+            f"### IDENTITY: You are Nexus Inter-Nexus Intelligence.\n"
             f"### INSTRUCTIONS: \n"
-            f"1. Summarize key facts in bullet points.\n"
-            f"2. Use the 'CHAPTER PHILOSOPHY' (if provided) to explain the connective logic.\n"
-            f"3. Maintain table structures and provide a proof quote.\n\n"
+            f"1. Compare data across SOURCES (e.g., UN Report vs EU AI Act).\n"
+            f"2. Cite specific Article numbers and turnover percentages (if found).\n"
+            f"3. Note if one document is voluntary and the other is mandatory.\n\n"
             f"### CONTEXT:\n{context_text}\n\n"
             f"### QUESTION:\n{user_query}\n\n"
             f"### EXECUTIVE REPORT:"
@@ -195,28 +215,33 @@ def nexus_research_final(query):
         )
         return res.choices[0].message.content, count_tokens(prompt)
 
-    # NEW: First Pass Generation
     answer, tokens_in = generate_report(best_doc, query)
     stats['tokens_in'] += tokens_in
 
-    # --- C. DAY 11 AGENTIC AUDIT & SECOND PASS (PRESERVED) ---
+    # --- C. DAY 11/13 AGENTIC AUDIT & SECOND PASS ---
     audit_decision = agentic_audit(query, answer)
     
+    # PATCH 2: Hard-Override Pivot for missing "Articles" or "Percentages"
+    if ("Article" in query or "%" in query) and "Article" not in answer:
+        audit_decision = f"NEED: specific regulatory text for {query}"
+
     if "NEED:" in audit_decision:
         stats['agentic_pivots'] += 1
         sub_query = audit_decision.replace("NEED:", "").strip()
-        print(f"🔄 AGENTIC PIVOT: Context insufficient. Searching for '{sub_query}'...")
+        print(f"🔄 AGENTIC PIVOT: Context insufficient. Searching across vault for '{sub_query}'...")
         
-        second_v = get_vector_search(sub_query, collection, 2)
+        # Day 13: Increase N to 6 for the second pass to look deeper
+        second_v = get_vector_search(sub_query, collection, 6)
         if second_v['documents'][0]:
-            second_doc = second_v['documents'][0][0]
+            # Interleave sources for the secondary context
+            second_doc = "\n".join([f"[{m.get('source')}]: {d}" for d, m in zip(second_v['documents'][0], second_v['metadatas'][0])])
             combined_context = f"PRIMARY DATA:\n{best_doc}\n\nADDITIONAL DISCOVERY:\n{second_doc}"
             answer, tokens_in_2 = generate_report(combined_context, query)
             stats['tokens_in'] += tokens_in_2
 
     # D. FINAL PACKAGING
     evidence = {
-        "file": primary_meta.get("source", "Unknown"),
+        "files": stats['files_consulted'],
         "page": primary_meta.get("page", "N/A"),
         "snippet": scored_results[0][0][:250].replace("\n", " ") + "..." 
     }
@@ -225,7 +250,6 @@ def nexus_research_final(query):
     stats['total_ms'] = int((time.time() - start_total) * 1000)
     
     return answer, evidence, stats
-
 # --- 5. THE UI ---
 if __name__ == "__main__":
     while True:
@@ -246,11 +270,11 @@ if __name__ == "__main__":
         print(f"📝 EXECUTIVE REPORT:\n{answer}")
         print("━"*64)
         
+        # In your __main__ loop:
         if evidence:
             print(f"✅ TRUST VERIFICATION")
-            print(f"   📍 SOURCE: {evidence['file']} | PAGE: {evidence['page']}")
-            # Added RECURSIVE stats to the UI
-            print(f"   🎯 CONFIDENCE: {conf}% | PIVOTS: {stats['agentic_pivots']} | RECURSION: {stats['recursive_summaries']}")
+            print(f"   📍 SOURCES: {', '.join(evidence['files'])}") # Changed to join list
+            print(f"   🎯 CONFIDENCE: {conf}% | PIVOTS: {stats['agentic_pivots']}")
             
             with open("nexus_audit_log.md", "a", encoding="utf-8") as f:
                 f.write(f"## 🛠️ SESSION ENTRY: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")

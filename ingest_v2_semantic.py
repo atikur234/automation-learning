@@ -3,13 +3,12 @@ import chromadb
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_community.document_loaders import PyPDFLoader
+import pdfplumber
 
 # 1. SETUP THE HIGH-PRECISION BRAIN
 print("🧠 Initializing High-Precision Semantic Brain...")
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# We use 'standard_deviation' with a 1.25 threshold.
-# This forces more 'cuts', creating smaller, more focused chunks.
 text_splitter = SemanticChunker(
     embeddings, 
     breakpoint_threshold_type="standard_deviation",
@@ -31,6 +30,21 @@ else:
     print("✂️ Shredding PDF into High-Precision Atomic Chunks...")
     chunks = text_splitter.split_documents(pages)
 
+    # --- START DAY 9 HOUR 2: THE CONTEXTUAL HANDSHAKE ---
+    print("🧵 Stitching context for better recall (200-char overlap)...")
+    for i in range(len(chunks)):
+        current_text = chunks[i].page_content
+        
+        # Take the last 200 characters of the PREVIOUS chunk to bridge the gap
+        prefix = ""
+        if i > 0:
+            # We add a visual separator [...] so the LLM knows it's seeing a preview
+            prefix = chunks[i-1].page_content[-200:] + " [...] "
+        
+        # Update the document content with the stitched prefix
+        chunks[i].page_content = prefix + current_text
+    # --- END HOUR 2 WORK ---
+
     # 5. REBUILD THE VAULT
     client = chromadb.PersistentClient(path="./chroma_db")
     
@@ -42,7 +56,7 @@ else:
 
     collection = client.create_collection(name="nexus_compliance_vault")
 
-    print(f"📦 Indexing {len(chunks)} Atomic Semantic Chunks...")
+    print(f"📦 Indexing {len(chunks)} Stitched Atomic Semantic Chunks...")
     for i, chunk in enumerate(chunks):
         collection.add(
             ids=[f"sem_{i}"],
